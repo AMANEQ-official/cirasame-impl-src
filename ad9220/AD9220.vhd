@@ -146,144 +146,152 @@ begin
   adcClk    <= '1' when (adc_clk_ena = '1' AND adc_clk = '1') else '0';
 
   -- Clock domain crossing --
-  u_start_latch : process(clk, sync_reset)
+  u_start_latch : process(clk)
   begin
-    if(sync_reset = '1') then
-      reg_start   <= '0';
-    elsif(clk'event and clk = '1') then
-      if(startIn = '1' and adc_daq_gate = '1' and adc_daq_busy = '0') then
-        reg_start   <= '1';
-      elsif(reg_start = '1' and reg_busy = '1') then
+    if(clk'event and clk = '1') then
+      if(sync_reset = '1') then
         reg_start   <= '0';
+      else
+        if(startIn = '1' and adc_daq_gate = '1' and adc_daq_busy = '0') then
+          reg_start   <= '1';
+        elsif(reg_start = '1' and reg_busy = '1') then
+          reg_start   <= '0';
+        end if;
       end if;
     end if;
   end process;
 
   --generate the timing for the bus clock (read_clk) and the data clock (data_clk)
-  process(clk, sync_reset)
+  process(clk)
     VARIABLE count  :  integer RANGE 0 TO divider*4;
   begin
-    if(sync_reset = '1') THEN
-      count := 0;
-    ELSIF(clk'event AND clk = '1') THEN
-      data_clk_prev  <= data_clk;
-      read_clk_prev  <= read_clk;
-      adc_clk_prev    <= adc_clk;
-      if(count = divider*4-1) THEN
+    IF(clk'event AND clk = '1') THEN
+      if(sync_reset = '1') THEN
         count := 0;
       else
-        count := count + 1;
+        data_clk_prev  <= data_clk;
+        read_clk_prev  <= read_clk;
+        adc_clk_prev    <= adc_clk;
+        if(count = divider*4-1) THEN
+          count := 0;
+        else
+          count := count + 1;
+        end if;
+        case count is
+          when 0 TO divider-1 =>
+            read_clk    <= '0';
+            adc_clk     <= '1';
+            data_clk    <= '0';
+          when divider TO divider*2-1 =>
+            read_clk    <= '0';
+            adc_clk     <= '1';
+            data_clk    <= '1';
+          when divider*2 TO divider*3-1 =>
+            read_clk    <= '1';
+            adc_clk     <= '0';
+            data_clk    <= '1';
+          when OTHERS =>
+            read_clk    <= '1';
+            adc_clk     <= '0';
+            data_clk    <= '0';
+        end case;
       end if;
-      case count is
-        when 0 TO divider-1 =>
-          read_clk    <= '0';
-          adc_clk     <= '1';
-          data_clk    <= '0';
-        when divider TO divider*2-1 =>
-          read_clk    <= '0';
-          adc_clk     <= '1';
-          data_clk    <= '1';
-        when divider*2 TO divider*3-1 =>
-          read_clk    <= '1';
-          adc_clk     <= '0';
-          data_clk    <= '1';
-        when OTHERS =>
-          read_clk    <= '1';
-          adc_clk     <= '0';
-          data_clk    <= '0';
-      end case;
     end if;
   end process;
 
   --state_read machine and writing to sda during sck low (data_clk rising edge)
-  u_read_seq : process(clk, sync_reset)
+  u_read_seq : process(clk)
   begin
-    if(sync_reset = '1') THEN
-      state_read     <= Idle;
-      reg_busy       <= '0';
-      read_clk_ena   <= '0';
-      read_in_bit    <= '0';
-      bit_cnt_read   <= kReadLength-1;
-    ELSIF(clk'event AND clk = '1') THEN
-      if(data_clk = '1' AND data_clk_prev  = '0') THEN
-        case state_read is
-          when Idle =>
-            if(reg_start = '1') THEN
-              reg_busy    <= '1';
-              state_read  <= StartSeq;
-            else
-              reg_busy    <= '0';
-              read_in_bit <= '0';
-              state_read  <= Idle;
-            end if;
-          when StartSeq =>
-            reg_busy      <= '1';
-            read_clk_ena  <= '1';
-            read_in_bit   <= '1';
-            state_read    <= Command;
-          when Command =>
-            read_in_bit   <= '0';
-            if(bit_cnt_read = 0) THEN
-              bit_cnt_read <= kReadLength-1;
-              read_clk_ena <= '0';
-              state_read   <= StopSeq;
-            else
-              bit_cnt_read <= bit_cnt_read - 1;
-              state_read   <= Command;
-            end if;
-          when StopSeq =>
-            state_read     <= Finalize;
-          when Finalize =>
-            reg_busy       <= '0';
-            state_read     <= Idle;
-        end case;
+    IF(clk'event AND clk = '1') THEN
+      if(sync_reset = '1') THEN
+        state_read     <= Idle;
+        reg_busy       <= '0';
+        read_clk_ena   <= '0';
+        read_in_bit    <= '0';
+        bit_cnt_read   <= kReadLength-1;
+      else
+        if(data_clk = '1' AND data_clk_prev  = '0') THEN
+          case state_read is
+            when Idle =>
+              if(reg_start = '1') THEN
+                reg_busy    <= '1';
+                state_read  <= StartSeq;
+              else
+                reg_busy    <= '0';
+                read_in_bit <= '0';
+                state_read  <= Idle;
+              end if;
+            when StartSeq =>
+              reg_busy      <= '1';
+              read_clk_ena  <= '1';
+              read_in_bit   <= '1';
+              state_read    <= Command;
+            when Command =>
+              read_in_bit   <= '0';
+              if(bit_cnt_read = 0) THEN
+                bit_cnt_read <= kReadLength-1;
+                read_clk_ena <= '0';
+                state_read   <= StopSeq;
+              else
+                bit_cnt_read <= bit_cnt_read - 1;
+                state_read   <= Command;
+              end if;
+            when StopSeq =>
+              state_read     <= Finalize;
+            when Finalize =>
+              reg_busy       <= '0';
+              state_read     <= Idle;
+          end case;
+        end if;
       end if;
     end if;
   end process;
 
 
-  u_adc_seq : process(clk, sync_reset)
+  u_adc_seq : process(clk)
   begin
-    if(sync_reset = '1') THEN
-      state_adc     <= Idle;
-      adc_clk_ena   <= '0';
-      en_adc_fifo   <= '0';
-      bit_cnt_adc   <= kReadLength+kAdcLatency-1;
-    ELSIF(clk'event AND clk = '1') THEN
-      if(read_clk = '1' AND read_clk_prev  = '0') THEN
-        case state_adc is
-          when Idle =>
-            if(read_clk_ena = '1') THEN
-              adc_clk_ena <= '1';
-              bit_cnt_adc <= kAdcLatency-1;
-              state_adc   <= WaitLatency;
-            else
-              state_adc   <= Idle;
-            end if;
-          when WaitLatency =>
-            if(bit_cnt_adc = 0) THEN
-              en_adc_fifo <= '1';
-              bit_cnt_adc <= kReadLength-1;
-              state_adc   <= Command;
-            else
-              bit_cnt_adc <= bit_cnt_adc - 1;
-              state_adc   <= WaitLatency;
-            end if;
-          when Command =>
-            if(bit_cnt_adc = 0) THEN
-              bit_cnt_adc <= kReadLength-1;
-              adc_clk_ena   <= '0';
-              state_adc   <= StopSeq;
-            else
-              bit_cnt_adc <= bit_cnt_adc - 1;
-              state_adc   <= Command;
-            end if;
-          when StopSeq =>
-            en_adc_fifo   <= '0';
-            state_adc     <= Finalize;
-          when Finalize =>
-            state_adc     <= Idle;
-        end case;
+    if(clk'event AND clk = '1') THEN
+      if(sync_reset = '1') THEN
+        state_adc     <= Idle;
+        adc_clk_ena   <= '0';
+        en_adc_fifo   <= '0';
+        bit_cnt_adc   <= kReadLength+kAdcLatency-1;
+      else
+        if(read_clk = '1' AND read_clk_prev  = '0') THEN
+          case state_adc is
+            when Idle =>
+              if(read_clk_ena = '1') THEN
+                adc_clk_ena <= '1';
+                bit_cnt_adc <= kAdcLatency-1;
+                state_adc   <= WaitLatency;
+              else
+                state_adc   <= Idle;
+              end if;
+            when WaitLatency =>
+              if(bit_cnt_adc = 0) THEN
+                en_adc_fifo <= '1';
+                bit_cnt_adc <= kReadLength-1;
+                state_adc   <= Command;
+              else
+                bit_cnt_adc <= bit_cnt_adc - 1;
+                state_adc   <= WaitLatency;
+              end if;
+            when Command =>
+              if(bit_cnt_adc = 0) THEN
+                bit_cnt_adc <= kReadLength-1;
+                adc_clk_ena   <= '0';
+                state_adc   <= StopSeq;
+              else
+                bit_cnt_adc <= bit_cnt_adc - 1;
+                state_adc   <= Command;
+              end if;
+            when StopSeq =>
+              en_adc_fifo   <= '0';
+              state_adc     <= Finalize;
+            when Finalize =>
+              state_adc     <= Idle;
+          end case;
+        end if;
       end if;
     end if;
   end process;
@@ -331,24 +339,26 @@ begin
       valid   => rv_fifo
   );
 
-  u_event_seq : process(clk, sync_reset)
+  u_event_seq : process(clk)
   begin
-    if(sync_reset = '1') then
-      adc_daq_busy  <= '0';
-      event_num     <= 0;
-    elsif(clk'event and clk = '1') then
-      adc_clk_ena_edge  <= adc_clk_ena_edge(0) & adc_clk_ena;
-
-      if(release_busy = '1') then
-        event_num  <= 0;
-      elsif(adc_clk_ena_edge = "01") then
-        event_num  <= event_num +1;
-      end if;
-
-      if(release_busy = '1') then
+    if(clk'event and clk = '1') then
+      if(sync_reset = '1') then
         adc_daq_busy  <= '0';
-      elsif(release_busy = '0' and event_num = 1) then
-        adc_daq_busy  <= '1';
+        event_num     <= 0;
+      else
+        adc_clk_ena_edge  <= adc_clk_ena_edge(0) & adc_clk_ena;
+
+        if(release_busy = '1') then
+          event_num  <= 0;
+        elsif(adc_clk_ena_edge = "01") then
+          event_num  <= event_num +1;
+        end if;
+
+        if(release_busy = '1') then
+          adc_daq_busy  <= '0';
+        elsif(release_busy = '0' and event_num = 1) then
+          adc_daq_busy  <= '1';
+        end if;
       end if;
     end if;
   end process;
@@ -356,97 +366,99 @@ begin
 
 
   -- Local bus process ------------------------------------------------
-  u_BusProcess : process(clk, sync_reset)
+  u_BusProcess : process(clk)
   begin
-    if(sync_reset = '1') then
-      adc_daq_gate     <= '0';
-      re_fifo          <= '0';
+    if(clk'event and clk = '1') then
+      if(sync_reset = '1') then
+        adc_daq_gate     <= '0';
+        re_fifo          <= '0';
 
-      state_lbus	     <= Init;
-    elsif(clk'event and clk = '1') then
-      case state_lbus is
-        when Init =>
-        adc_daq_gate       <= '0';
-          re_fifo          <= '0';
-          dataLocalBusOut  <= x"00";
-          readyLocalBus		 <= '0';
-          state_lbus		   <= Idle;
+        state_lbus	     <= Init;
+      else
+        case state_lbus is
+          when Init =>
+          adc_daq_gate       <= '0';
+            re_fifo          <= '0';
+            dataLocalBusOut  <= x"00";
+            readyLocalBus		 <= '0';
+            state_lbus		   <= Idle;
 
-        when Idle =>
-          readyLocalBus	<= '0';
-          if(weLocalBus = '1' or reLocalBus = '1') then
-            state_lbus	<= Connect;
-          end if;
+          when Idle =>
+            readyLocalBus	<= '0';
+            if(weLocalBus = '1' or reLocalBus = '1') then
+              state_lbus	<= Connect;
+            end if;
 
-        when Connect =>
-          if(weLocalBus = '1') then
-            state_lbus	<= Write;
-          else
-            state_lbus	<= Read;
-          end if;
+          when Connect =>
+            if(weLocalBus = '1') then
+              state_lbus	<= Write;
+            else
+              state_lbus	<= Read;
+            end if;
 
-        when Write =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kAdcDaqGate(kNonMultiByte'range) =>
-              adc_daq_gate  <= dataLocalBusIn(0);
-              state_lbus	  <= Done;
+          when Write =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kAdcDaqGate(kNonMultiByte'range) =>
+                adc_daq_gate  <= dataLocalBusIn(0);
+                state_lbus	  <= Done;
 
-            when kReleaseBusy(kNonMultiByte'range) =>
-              state_lbus  <= ReleaseBusy;
+              when kReleaseBusy(kNonMultiByte'range) =>
+                state_lbus  <= ReleaseBusy;
 
-            when others =>
-              state_lbus	<= Done;
-          end case;
+              when others =>
+                state_lbus	<= Done;
+            end case;
 
-        when Read =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kAdcDaqGate(kNonMultiByte'range) =>
-              dataLocalBusOut <= B"0000_000" & adc_daq_gate;
-              state_lbus	    <= Done;
+          when Read =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kAdcDaqGate(kNonMultiByte'range) =>
+                dataLocalBusOut <= B"0000_000" & adc_daq_gate;
+                state_lbus	    <= Done;
 
-            when kEventFull(kNonMultiByte'range) =>
-              dataLocalBusOut <= B"0000_000" & adc_daq_busy;
-              state_lbus	    <= Done;
+              when kEventFull(kNonMultiByte'range) =>
+                dataLocalBusOut <= B"0000_000" & adc_daq_busy;
+                state_lbus	    <= Done;
 
-            when kReadFIFO(kNonMultiByte'range) =>
-              if(empty_fifo = '1') then
+              when kReadFIFO(kNonMultiByte'range) =>
+                if(empty_fifo = '1') then
+                  dataLocalBusOut   <= X"ee";
+                  state_lbus        <= Done;
+                else
+                  re_fifo        <= '1';
+                  state_lbus	      <= ReadFIFO;
+                end if;
+
+              when others =>
                 dataLocalBusOut   <= X"ee";
                 state_lbus        <= Done;
-              else
-                re_fifo        <= '1';
-                state_lbus	      <= ReadFIFO;
-              end if;
+            end case;
 
-            when others =>
-              dataLocalBusOut   <= X"ee";
+          when ReadFIFO =>
+            re_fifo <= '0';
+            if(rv_fifo = '1') then
+              dataLocalBusOut   <= dout_fifo;
               state_lbus        <= Done;
-          end case;
+            end if;
 
-        when ReadFIFO =>
-          re_fifo <= '0';
-          if(rv_fifo = '1') then
-            dataLocalBusOut   <= dout_fifo;
-            state_lbus        <= Done;
-          end if;
+          when ReleaseBusy =>
+            release_busy  <= '1';
+            state_lbus    <= Finalize;
 
-        when ReleaseBusy =>
-          release_busy  <= '1';
-          state_lbus    <= Finalize;
+          when Finalize =>
+            release_busy  <= '0';
+            state_lbus    <= Done;
 
-        when Finalize =>
-          release_busy  <= '0';
-          state_lbus    <= Done;
+          when Done =>
+            readyLocalBus	<= '1';
+            if(weLocalBus = '0' and reLocalBus = '0') then
+              state_lbus	<= Idle;
+            end if;
 
-        when Done =>
-          readyLocalBus	<= '1';
-          if(weLocalBus = '0' and reLocalBus = '0') then
-            state_lbus	<= Idle;
-          end if;
-
-        -- probably this is error --
-        when others =>
-          state_lbus	<= Init;
-      end case;
+          -- probably this is error --
+          when others =>
+            state_lbus	<= Init;
+        end case;
+      end if;
     end if;
   end process u_BusProcess;
 

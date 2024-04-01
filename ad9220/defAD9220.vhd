@@ -6,7 +6,7 @@ use mylib.defBCT.all;
 package defAD9220 is
 
   -- AD9220 --
-  constant kWdithAdcData    : positive:= 12;
+  constant kWdithAdcData    : integer:= 12;
   constant kAdcLatency      : integer:= 3;
 
   -- CITIROC --

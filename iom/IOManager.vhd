@@ -46,60 +46,62 @@ begin
 
   discriMuxOut  <= discriIn(to_integer(unsigned(reg_discri)));
 
-  u_BusProcess : process(clk, sync_reset)
+  u_BusProcess : process(clk)
   begin
-    if(sync_reset = '1') then
-      reg_discri		<= (others => '0');
+    if(clk'event and clk = '1') then
+      if(sync_reset = '1') then
+        reg_discri		<= (others => '0');
 
-      state_lbus	<= Init;
-    elsif(clk'event and clk = '1') then
-      case state_lbus is
-        when Init =>
-          dataLocalBusOut       <= x"00";
-          readyLocalBus		<= '0';
-          reg_discri		<= (others => '0');
-          state_lbus		<= Idle;
+        state_lbus	<= Init;
+      else
+        case state_lbus is
+          when Init =>
+            dataLocalBusOut       <= x"00";
+            readyLocalBus		<= '0';
+            reg_discri		<= (others => '0');
+            state_lbus		<= Idle;
 
-        when Idle =>
-          readyLocalBus	<= '0';
-          if(weLocalBus = '1' or reLocalBus = '1') then
-            state_lbus	<= Connect;
-          end if;
+          when Idle =>
+            readyLocalBus	<= '0';
+            if(weLocalBus = '1' or reLocalBus = '1') then
+              state_lbus	<= Connect;
+            end if;
 
-        when Connect =>
-          if(weLocalBus = '1') then
-            state_lbus	<= Write;
-          else
-            state_lbus	<= Read;
-          end if;
+          when Connect =>
+            if(weLocalBus = '1') then
+              state_lbus	<= Write;
+            else
+              state_lbus	<= Read;
+            end if;
 
-        when Write =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kSelDiscri(kNonMultiByte'range) =>
-              reg_discri	<= dataLocalBusIn(kWidthDiscriReg-1 downto 0);
-            when others => null;
-          end case;
-          state_lbus	<= Done;
+          when Write =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kSelDiscri(kNonMultiByte'range) =>
+                reg_discri	<= dataLocalBusIn(kWidthDiscriReg-1 downto 0);
+              when others => null;
+            end case;
+            state_lbus	<= Done;
 
-        when Read =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kSelDiscri(kNonMultiByte'range) =>
-              dataLocalBusOut <= '0' & reg_discri;
-            when others =>
-              dataLocalBusOut <= x"ff";
-          end case;
-          state_lbus	<= Done;
+          when Read =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kSelDiscri(kNonMultiByte'range) =>
+                dataLocalBusOut <= '0' & reg_discri;
+              when others =>
+                dataLocalBusOut <= x"ff";
+            end case;
+            state_lbus	<= Done;
 
-        when Done =>
-          readyLocalBus	<= '1';
-          if(weLocalBus = '0' and reLocalBus = '0') then
-            state_lbus	<= Idle;
-          end if;
+          when Done =>
+            readyLocalBus	<= '1';
+            if(weLocalBus = '0' and reLocalBus = '0') then
+              state_lbus	<= Idle;
+            end if;
 
-        -- probably this is error --
-        when others =>
-          state_lbus	<= Init;
-      end case;
+          -- probably this is error --
+          when others =>
+            state_lbus	<= Init;
+        end case;
+      end if;
     end if;
   end process u_BusProcess;
 

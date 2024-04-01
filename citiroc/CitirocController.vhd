@@ -4,7 +4,6 @@ use ieee.std_logic_arith.all;
 use ieee.std_logic_unsigned.all;
 use mylib.defBCT.all;
 use mylib.defCitiroc.all;
-use mylib.defToplevel.all;
 
 Library xpm;
 use xpm.vcomponents.all;
@@ -34,6 +33,10 @@ end CitirocController;
 architecture RTL of CitirocController is
   -- internal signal declaration ----------------------------------------
   attribute mark_debug  : string;
+
+  -- System -------------------------------------------------------------
+  signal sync_reset          : std_logic;
+  signal sync_reset_slow     : std_logic;
 
   -- Local Bus ----------------------------------------------------------
   signal state_tbus	: BusProcessType;
@@ -114,7 +117,6 @@ architecture RTL of CitirocController is
   -- component declaration ---------------------------------------------
   component EdgeDetector
     port(
-      rst    : in std_logic;
       clk    : in std_logic;
       dIn    : in std_logic;
       dOut   : out std_logic
@@ -150,81 +152,83 @@ architecture RTL of CitirocController is
 
 -- =============================== body ===============================
 begin
-  u_SlowControlProcess : process(clk_machine, rst)
+  u_SlowControlProcess : process(clk_machine)
   begin
-    if(rst = '1') then
-      en_count <= '0';
-      rd_fifo <= '0';
-      clear_count <= '1';
-      clk_shift <= '0';
-      end_cycle <= '0';
-      state_sc          <= Idle;
-    elsif(clk_machine'event and clk_machine = '1') then
-      case state_sc is
-        when Idle =>
-          en_count <= '0';
-          clk_shift <= '0';
-          if start_cycle_mem = '0' then
-            state_sc <= Idle;
-          else
-            rd_fifo <= '1';
-            clear_count <= '0';
-            state_sc <= ReadFIFO;
-          end if;
-
-        when ReadFIFO =>
-          en_count <= '1';
-          rd_fifo <= '0';
-          state_sc <= StartCount;
-
-        when StartCount =>
-          en_count <= '0';
-          state_sc <= IdleCount;
-
-        when IdleCount =>
-          if(empty = '1' and count = "1000") then
+    if(clk_machine'event and clk_machine = '1') then
+      if(sync_reset_slow = '1') then
+        en_count <= '0';
+        rd_fifo <= '0';
+        clear_count <= '1';
+        clk_shift <= '0';
+        end_cycle <= '0';
+        state_sc          <= Idle;
+      else
+        case state_sc is
+          when Idle =>
             en_count <= '0';
-            clk_shift <= '1';
-            state_sc <= EmptyFIFO;
-          else
+            clk_shift <= '0';
+            if start_cycle_mem = '0' then
+              state_sc <= Idle;
+            else
+              rd_fifo <= '1';
+              clear_count <= '0';
+              state_sc <= ReadFIFO;
+            end if;
+
+          when ReadFIFO =>
             en_count <= '1';
-            clk_shift <= '1';
-            state_sc <= DoCount;
-          end if;
+            rd_fifo <= '0';
+            state_sc <= StartCount;
 
-        when DoCount =>
-          en_count <= '0';
-          clk_shift <= '0';
-          if(empty = '0' and count = "1000") then
-            rd_fifo <= '1';
-            clear_count <= '1';
-            state_sc <= ResetCount;
-          else
+          when StartCount =>
+            en_count <= '0';
             state_sc <= IdleCount;
-          end if;
 
-        when ResetCount =>
-          en_count <= '1';
-          rd_fifo <= '0';
-          clear_count <= '0';
-          state_sc <= StartCount;
+          when IdleCount =>
+            if(empty = '1' and count = "1000") then
+              en_count <= '0';
+              clk_shift <= '1';
+              state_sc <= EmptyFIFO;
+            else
+              en_count <= '1';
+              clk_shift <= '1';
+              state_sc <= DoCount;
+            end if;
 
-        when EmptyFIFO =>
-          rd_fifo <= '0';
-          clk_shift <= '0';
-          clear_count <= '1';
-          end_cycle <= '1';
-          state_sc <= EndCycle;
+          when DoCount =>
+            en_count <= '0';
+            clk_shift <= '0';
+            if(empty = '0' and count = "1000") then
+              rd_fifo <= '1';
+              clear_count <= '1';
+              state_sc <= ResetCount;
+            else
+              state_sc <= IdleCount;
+            end if;
 
-        when EndCycle =>
-          clear_count <= '1';
-          end_cycle <= '0';
-          state_sc <= Idle;
+          when ResetCount =>
+            en_count <= '1';
+            rd_fifo <= '0';
+            clear_count <= '0';
+            state_sc <= StartCount;
 
-        when others =>
-          clear_count <= '1';
-          state_sc <= Idle;
-      end case;
+          when EmptyFIFO =>
+            rd_fifo <= '0';
+            clk_shift <= '0';
+            clear_count <= '1';
+            end_cycle <= '1';
+            state_sc <= EndCycle;
+
+          when EndCycle =>
+            clear_count <= '1';
+            end_cycle <= '0';
+            state_sc <= Idle;
+
+          when others =>
+            clear_count <= '1';
+            state_sc <= Idle;
+        end case;
+      end if;
     end if;
   end process u_SlowControlProcess;
 
@@ -248,21 +252,22 @@ begin
   --   end_cycle <= '1' when EndCycle,
   --                '0' when others;
 
-  u_CountProcess : process(clk_machine, rst)
+  u_CountProcess : process(clk_machine)
   begin
-    if(rst = '1') then
-      count <= (others => '0');
-    elsif(clk_machine'event and clk_machine = '1') then
-      if(clear_count = '1') then
+    if(clk_machine'event and clk_machine = '1') then
+      if(sync_reset_slow = '1') then
         count <= (others => '0');
-      elsif(en_count = '1') then
-        count <= count + "0001";
+      else
+        if(clear_count = '1') then
+          count <= (others => '0');
+        elsif(en_count = '1') then
+          count <= count + "0001";
+        end if;
       end if;
     end if;
   end process u_CountProcess;
 
   u_SyncCycle : EdgeDetector port map(
-    rst     => rst,
     clk     => clk,
     dIn     => reg_control(0),
     dOut    => sync_start_cycle
@@ -486,92 +491,102 @@ begin
   srin_read0      <= (out_shift and mem_w_read and start_cycle_mem);
   srin_read       <= srin_read0;
 
-  u_BusProcess : process(clk, rst)
+  u_BusProcess : process(clk)
   begin
-    if(rst = '1') then
-      state_tbus	<= Init;
-      we_fifo           <= '0';
-      start_cycle       <= '0';
-      en_control        <= '0';
-      reg_control       <= "00000000";
-      direct_control1   <= "00000000";
-      direct_control2   <= "00000000";
-    elsif(clk'event and clk = '1') then
-      case state_tbus is
-        when Init =>
-          dataLocalBusOut       <= x"00";
-          readyLocalBus		<= '0';
-          we_fifo               <= '0';
-          en_control            <= '0';
-          reg_control           <= "00000000";
-          direct_control1   <= "00000000";
-          direct_control2   <= "00000000";
-          state_tbus		<= Idle;
+    if(clk'event and clk = '1') then
+      if(sync_reset = '1') then
+        state_tbus	<= Init;
+        we_fifo           <= '0';
+        start_cycle       <= '0';
+        en_control        <= '0';
 
-        when Idle =>
-          readyLocalBus	<= '0';
-          if(weLocalBus = '1' or reLocalBus = '1') then
-            state_tbus	<= Connect;
-          end if;
 
-        when Connect =>
-          if(weLocalBus = '1') then
-            state_tbus	<= Write;
-          else
-            state_tbus	<= Read;
-          end if;
+        direct_control2   <= "00000000";
 
-        when Write =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kAddrSCFIFO(kNonMultiByte'range) =>
-              we_fifo <= '1';
-              en_control <= '0';
-            when kAddrPDC(kNonMultiByte'range) =>
-              we_fifo <= '0';
-              en_control <= '0';
-              if(addrLocalBus(kMultiByte'range) = "0000") then
-                direct_control1 <= dataLocalBusIn;
-              elsif(addrLocalBus(kMultiByte'range) = "0001") then
-                direct_control2 <= dataLocalBusIn;
-              end if;
-            when kAddrCC(kNonMultiByte'range) =>
-              we_fifo <= '0';
-              en_control <= '1';
-              reg_control <= dataLocalBusIn;
-            when others =>
-              we_fifo <= '0';
-          end case;
-          state_tbus	<= Done;
+      else
+        case state_tbus is
+          when Init =>
+            dataLocalBusOut       <= x"00";
+            readyLocalBus		<= '0';
+            we_fifo               <= '0';
+            en_control            <= '0';
+            reg_control           <= "00000000";
+            direct_control1   <= "00000000";
+            direct_control2   <= "00000000";
+            state_tbus		<= Idle;
 
-        when Read =>
-          case addrLocalBus(kNonMultiByte'range) is
-            when kAddrSCFIFO(kNonMultiByte'range) =>
-              dataLocalBusOut <= x"00";
-            when kAddrPDC(kNonMultiByte'range) =>
-              dataLocalBusOut <= x"01";
-            when kAddrCC(kNonMultiByte'range) =>
-              dataLocalBusOut <= x"02";
-            when others =>
-              dataLocalBusOut <= x"FF";
-          end case;
-          state_tbus	<= Done;
+          when Idle =>
+            readyLocalBus	<= '0';
+            if(weLocalBus = '1' or reLocalBus = '1') then
+              state_tbus	<= Connect;
+            end if;
 
-        when Done =>
-          we_fifo <= '0';
-          en_control <= '0';
-          reg_control <= "00000000";
-          start_cycle <= '0';
-          readyLocalBus	<= '1';
-          if(weLocalBus = '0' and reLocalBus = '0') then
-            state_tbus	<= Idle;
-          end if;
+          when Connect =>
+            if(weLocalBus = '1') then
+              state_tbus	<= Write;
+            else
+              state_tbus	<= Read;
+            end if;
 
-        -- probably this is error --
-        when others =>
-          state_tbus	<= Init;
-      end case;
+          when Write =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kAddrSCFIFO(kNonMultiByte'range) =>
+                we_fifo <= '1';
+                en_control <= '0';
+              when kAddrPDC(kNonMultiByte'range) =>
+                we_fifo <= '0';
+                en_control <= '0';
+                if(addrLocalBus(kMultiByte'range) = "0000") then
+                  direct_control1 <= dataLocalBusIn;
+                elsif(addrLocalBus(kMultiByte'range) = "0001") then
+                  direct_control2 <= dataLocalBusIn;
+                end if;
+              when kAddrCC(kNonMultiByte'range) =>
+                we_fifo <= '0';
+                en_control <= '1';
+                reg_control <= dataLocalBusIn;
+              when others =>
+                we_fifo <= '0';
+            end case;
+            state_tbus	<= Done;
+
+          when Read =>
+            case addrLocalBus(kNonMultiByte'range) is
+              when kAddrSCFIFO(kNonMultiByte'range) =>
+                dataLocalBusOut <= x"00";
+              when kAddrPDC(kNonMultiByte'range) =>
+                dataLocalBusOut <= x"01";
+              when kAddrCC(kNonMultiByte'range) =>
+                dataLocalBusOut <= x"02";
+              when others =>
+                dataLocalBusOut <= x"FF";
+            end case;
+            state_tbus	<= Done;
+
+          when Done =>
+            we_fifo <= '0';
+            en_control <= '0';
+            reg_control <= "00000000";
+            start_cycle <= '0';
+            readyLocalBus	<= '1';
+            if(weLocalBus = '0' and reLocalBus = '0') then
+              state_tbus	<= Idle;
+            end if;
+
+          -- probably this is error --
+          when others =>
+            state_tbus	<= Init;
+        end case;
+      end if;
     end if;
   end process u_BusProcess;
+
+  -- Reset sequence --
+  u_reset_gen_sys   : entity mylib.ResetGen
+    port map(rst, clk, sync_reset);
+
+  u_reset_gen_slow  : entity mylib.ResetGen
+    port map(rst, clk_machine, sync_reset_slow);
 
 end RTL;
 
