@@ -16,9 +16,13 @@ entity IOManager is
 
     -- Module Input --
     discriIn            : in std_logic_vector(kNumInput-1 downto 0);
+    triggerSig          : in std_logic;
+    heartbeatSig        : in std_logic;
+    tcpActive           : in std_logic;
 
     -- Module output --
     discriMuxOut        : out std_logic;
+    daqSigOut           : out std_logic;
 
     -- Local bus --
     addrLocalBus        : in LocalAddressType;
@@ -37,14 +41,24 @@ architecture RTL of IOManager is
 
   -- internal signal declaration ----------------------------------------
   constant kWidthDiscriReg  : integer:= integer(ceil(log2(real(kNumInput))));
+  constant kWidthDaqReg     : integer:= 2;
+
+  signal daq_sig            : std_logic;
 
   signal reg_discri	: std_logic_vector(kWidthDiscriReg-1 downto 0);
+  signal reg_daq	  : std_logic_vector(kWidthDaqReg-1 downto 0);
+  signal reg_onoff  : std_logic_vector(1 downto 0);
   signal state_lbus	: BusProcessType;
 
 -- =============================== body ===============================
 begin
 
-  discriMuxOut  <= discriIn(to_integer(unsigned(reg_discri)));
+  discriMuxOut  <= reg_onoff(0) and discriIn(to_integer(unsigned(reg_discri)));
+  daqSigOut     <= reg_onoff(1) and daq_sig;
+
+  daq_sig       <= triggerSig   when(reg_daq = "00") else
+                   heartbeatSig when(reg_daq = "01") else
+                   tcpActive    when(reg_daq = "10") else '0';
 
   u_BusProcess : process(clk)
   begin
@@ -78,6 +92,10 @@ begin
             case addrLocalBus(kNonMultiByte'range) is
               when kSelDiscri(kNonMultiByte'range) =>
                 reg_discri	<= dataLocalBusIn(kWidthDiscriReg-1 downto 0);
+              when kSelDaqSig(kNonMultiByte'range) =>
+                reg_daq	    <= dataLocalBusIn(kWidthDaqReg-1 downto 0);
+              when kIoOnOff(kNonMultiByte'range) =>
+                reg_onoff	  <= dataLocalBusIn(1 downto 0);
               when others => null;
             end case;
             state_lbus	<= Done;
@@ -86,6 +104,10 @@ begin
             case addrLocalBus(kNonMultiByte'range) is
               when kSelDiscri(kNonMultiByte'range) =>
                 dataLocalBusOut <= '0' & reg_discri;
+              when kSelDaqSig(kNonMultiByte'range) =>
+                dataLocalBusOut <= "000000" & reg_daq;
+              when kIoOnOff(kNonMultiByte'range) =>
+                dataLocalBusOut <= "000000" & reg_onoff;
               when others =>
                 dataLocalBusOut <= x"ff";
             end case;
