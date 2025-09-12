@@ -1,12 +1,10 @@
 library ieee, mylib;
 use ieee.std_logic_1164.all;
-use IEEE.numeric_std.all;
-
 use mylib.defBCT.all;
 
 package defMAX is
   -- GSPI-IF --
-  constant kSysClkFreq      : integer:= 150_000_000;
+--  constant kSysClkFreq      : integer:= 150_000_000;
   constant kSpiClkFreq      : integer:= 1_000_000;
   constant kWidthSpi        : integer:= 8;
 
